@@ -211,10 +211,19 @@ class Base_Task(gym.Env):
         # give renderer to sapien sim
         self.engine.set_renderer(self.renderer)
 
-        sapien.render.set_camera_shader_dir("rt")
-        sapien.render.set_ray_tracing_samples_per_pixel(32)
-        sapien.render.set_ray_tracing_path_depth(8)
-        sapien.render.set_ray_tracing_denoiser("oidn")
+        renderer_mode = str(kwargs.get("renderer_mode", "rt")).lower()
+        if renderer_mode in ["rt", "raytracing", "ray_tracing"]:
+            sapien.render.set_camera_shader_dir("rt")
+            sapien.render.set_ray_tracing_samples_per_pixel(kwargs.get("ray_tracing_samples_per_pixel", 32))
+            sapien.render.set_ray_tracing_path_depth(kwargs.get("ray_tracing_path_depth", 8))
+            denoiser = kwargs.get("ray_tracing_denoiser", "none")
+            if denoiser is not None and str(denoiser).lower() not in ["none", "off", "false", ""]:
+                try:
+                    sapien.render.set_ray_tracing_denoiser(str(denoiser))
+                except Exception as e:
+                    print(f"[WARN] Failed to set ray tracing denoiser ({denoiser}): {e}. Continue without denoiser.")
+        else:
+            sapien.render.set_camera_shader_dir("default")
 
         # declare sapien scene
         scene_config = sapien.SceneConfig()

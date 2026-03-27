@@ -1,12 +1,15 @@
-import cv2
 import numpy as np
 import os
 import subprocess
-import pickle
-import pdb
 
 
-def images_to_video(imgs: np.ndarray, out_path: str, fps: float = 30.0, is_rgb: bool = True) -> None:
+def images_to_video(
+    imgs: np.ndarray,
+    out_path: str,
+    fps: float = 30.0,
+    is_rgb: bool = True,
+    timeout_s: float = 300.0,
+) -> None:
     if (not isinstance(imgs, np.ndarray) or imgs.ndim != 4 or imgs.shape[3] not in (3, 4)):
         raise ValueError("imgs must be a numpy.ndarray of shape (N, H, W, C), with C equal to 3 or 4.")
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
@@ -40,11 +43,18 @@ def images_to_video(imgs: np.ndarray, out_path: str, fps: float = 30.0, is_rgb: 
             f"{out_path}",
         ],
         stdin=subprocess.PIPE,
+        stderr=subprocess.PIPE,
     )
-    ffmpeg.stdin.write(imgs.tobytes())
-    ffmpeg.stdin.close()
-    if ffmpeg.wait() != 0:
-        raise IOError(f"Cannot open ffmpeg. Please check the output path and ensure ffmpeg is supported.")
+
+    try:
+        _, stderr = ffmpeg.communicate(input=imgs.tobytes(), timeout=timeout_s)
+    except subprocess.TimeoutExpired:
+        ffmpeg.kill()
+        raise TimeoutError(f"ffmpeg timeout while writing video: {out_path}")
+
+    if ffmpeg.returncode != 0:
+        err_msg = stderr.decode("utf-8", errors="ignore") if stderr else ""
+        raise IOError(f"ffmpeg failed for {out_path}. {err_msg}")
 
     print(
         f"🎬 Video is saved to `{out_path}`, containing \033[94m{n_frames}\033[0m frames at {W}×{H} resolution and {fps} FPS."

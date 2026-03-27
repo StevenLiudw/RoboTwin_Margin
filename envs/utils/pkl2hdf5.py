@@ -81,7 +81,31 @@ def pkl_files_to_hdf5_and_video(pkl_files, hdf5_path, video_path):
         pkl_file = load_pkl_file(pkl_file_path)
         append_data_to_structure(data_list, pkl_file)
 
-    images_to_video(np.array(data_list["observation"]["head_camera"]["rgb"]), out_path=video_path)
+    observation = data_list.get("observation", {})
+    camera_names = list(observation.keys())
+    if "head_camera" in camera_names:
+        camera_names = ["head_camera"] + [name for name in camera_names if name != "head_camera"]
+
+    has_video = False
+    for camera_name in camera_names:
+        camera_data = observation.get(camera_name, {})
+        if not isinstance(camera_data, dict) or "rgb" not in camera_data or len(camera_data["rgb"]) == 0:
+            continue
+
+        has_video = True
+        if camera_name == "head_camera":
+            camera_video_path = video_path
+        else:
+            base, ext = os.path.splitext(video_path)
+            camera_video_path = f"{base}_{camera_name}{ext}"
+
+        try:
+            images_to_video(np.array(camera_data["rgb"]), out_path=camera_video_path)
+        except Exception as e:
+            print(f"[WARN] Video export failed for {camera_name} at {camera_video_path}: {e}")
+
+    if not has_video:
+        raise ValueError("No camera RGB stream found in pkl files, cannot generate videos.")
 
     with h5py.File(hdf5_path, "w") as f:
         create_hdf5_from_dict(f, data_list)

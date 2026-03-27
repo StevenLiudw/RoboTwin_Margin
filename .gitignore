@@ -28,3 +28,14 @@ envs/curobo/*
 
 /*.json*
 /*.txt
+# ignore large local folders
+assets/
+data/
+
+# optional
+*.pt
+*.pth
+__pycache__/
+*.pyc
+outputs/
+logs/
