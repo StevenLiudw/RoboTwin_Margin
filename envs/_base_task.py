@@ -492,15 +492,25 @@ class Base_Task(gym.Env):
             pkl_dic["endpose"]["right_gripper"] = norm_gripper_val[1]
         # qpos
         if self.data_type.get("qpos", False):
+            # Drive-target joint state (backward-compatible keys).
+            left_drive_jointstate = self.robot.get_left_arm_jointState()
+            right_drive_jointstate = self.robot.get_right_arm_jointState()
 
-            left_jointstate = self.robot.get_left_arm_jointState()
-            right_jointstate = self.robot.get_right_arm_jointState()
+            pkl_dic["joint_action"]["left_arm"] = left_drive_jointstate[:-1]
+            pkl_dic["joint_action"]["left_gripper"] = left_drive_jointstate[-1]
+            pkl_dic["joint_action"]["right_arm"] = right_drive_jointstate[:-1]
+            pkl_dic["joint_action"]["right_gripper"] = right_drive_jointstate[-1]
+            pkl_dic["joint_action"]["vector"] = np.array(left_drive_jointstate + right_drive_jointstate)
 
-            pkl_dic["joint_action"]["left_arm"] = left_jointstate[:-1]
-            pkl_dic["joint_action"]["left_gripper"] = left_jointstate[-1]
-            pkl_dic["joint_action"]["right_arm"] = right_jointstate[:-1]
-            pkl_dic["joint_action"]["right_gripper"] = right_jointstate[-1]
-            pkl_dic["joint_action"]["vector"] = np.array(left_jointstate + right_jointstate)
+            # Measured articulation qpos (real joint state).
+            left_real_jointstate = self.robot.get_left_arm_real_jointState()
+            right_real_jointstate = self.robot.get_right_arm_real_jointState()
+
+            pkl_dic["joint_action"]["left_arm_real"] = left_real_jointstate[:-1]
+            pkl_dic["joint_action"]["left_gripper_real"] = left_real_jointstate[-1]
+            pkl_dic["joint_action"]["right_arm_real"] = right_real_jointstate[:-1]
+            pkl_dic["joint_action"]["right_gripper_real"] = right_real_jointstate[-1]
+            pkl_dic["joint_action"]["vector_real"] = np.array(left_real_jointstate + right_real_jointstate)
         # pointcloud
         if self.data_type.get("pointcloud", False):
             pkl_dic["pointcloud"] = self.cameras.get_pcd(self.data_type.get("conbine", False))

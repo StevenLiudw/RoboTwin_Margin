@@ -26,7 +26,7 @@ camera:
 data_type:
   rgb: true
   third_view: false
-  depth: false
+  depth: true
   pointcloud: false
   observer: false
   endpose: true
