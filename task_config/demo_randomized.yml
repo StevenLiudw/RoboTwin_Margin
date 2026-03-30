@@ -39,3 +39,5 @@ save_path: ./data
 clear_cache_freq: 5
 collect_data: true
 eval_video_log: true
+failed_episode_timeout_s: 60
+failed_mark_collected_on_error: true

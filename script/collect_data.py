@@ -14,6 +14,9 @@ import traceback
 import os
 import time
 import pickle
+import shutil
+import signal
+from contextlib import contextmanager
 from argparse import ArgumentParser
 
 current_file_path = os.path.abspath(__file__)
@@ -52,6 +55,38 @@ def _load_failed_traj_data(save_path, idx):
         return None
     with open(file_path, "rb") as f:
         return pickle.load(f)
+
+
+@contextmanager
+def _time_limit(timeout_s, name="operation"):
+    """
+    Raise TimeoutError if the wrapped block exceeds timeout_s seconds.
+    Uses SIGALRM (Linux/Unix only). On unsupported platforms, acts as a no-op.
+    """
+    if timeout_s is None or timeout_s <= 0 or not hasattr(signal, "SIGALRM"):
+        yield
+        return
+
+    def _handle_timeout(signum, frame):
+        raise TimeoutError(f"{name} timed out after {timeout_s}s")
+
+    old_handler = signal.signal(signal.SIGALRM, _handle_timeout)
+    signal.setitimer(signal.ITIMER_REAL, float(timeout_s))
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, old_handler)
+
+
+def _remove_failed_cache_episode(failed_save_path, idx):
+    cache_dir = os.path.join(failed_save_path, ".cache", f"episode{idx}")
+    if os.path.isdir(cache_dir):
+        try:
+            shutil.rmtree(cache_dir)
+            print(f"[INFO] Removed stale cache: {cache_dir}")
+        except Exception as e:
+            print(f"[WARN] Failed to remove cache {cache_dir}: {type(e).__name__}: {e}")
 
 
 def class_decorator(task_name):
@@ -297,6 +332,10 @@ def run(TASK_ENV, args):
         args["save_data"] = True
 
         clear_cache_freq = args["clear_cache_freq"]
+        failed_episode_timeout_s = int(args.get("failed_episode_timeout_s", 600))
+        # When a failed episode is unstable or times out, mark it as collected to avoid
+        # re-running the same bad index forever on resume.
+        failed_mark_collected_on_error = bool(args.get("failed_mark_collected_on_error", True))
 
         def exist_hdf5(path, idx):
             file_path = os.path.join(path, "data", f"episode{idx}.hdf5")
@@ -338,15 +377,23 @@ def run(TASK_ENV, args):
             failed_save_path = os.path.join(args["save_path"], "failed")
             os.makedirs(failed_save_path, exist_ok=True)
 
+            # Resume by logical collection state first (robust to missing/unstable episodes).
             failed_idx = 0
-            while exist_hdf5(failed_save_path, failed_idx):
+            while failed_idx < len(failed_records) and bool(failed_records[failed_idx].get("collected", False)):
                 failed_idx += 1
+
+            # Backward compatibility: if no collected metadata is available, fall back to HDF5 continuity.
+            if failed_idx == 0:
+                while exist_hdf5(failed_save_path, failed_idx):
+                    failed_idx += 1
 
             print("\033[93m" + "[Start Failed Episode Collection]" + "\033[0m")
             print(f"Failed episodes to collect: {len(failed_records)} (skip first {failed_idx} already collected)")
 
             for idx in range(failed_idx, len(failed_records)):
                 record = failed_records[idx]
+                if bool(record.get("collected", False)):
+                    continue
                 seed = record["seed"]
                 replay_mode = "replan"
                 print(
@@ -384,7 +431,11 @@ def run(TASK_ENV, args):
                         _save_json(failed_info_file_path, {})
 
                     failed_info_db = _load_json(failed_info_file_path, {})
-                    info = TASK_ENV.play_once()
+                    with _time_limit(
+                        failed_episode_timeout_s,
+                        name=f"failed episode {idx} (seed={seed})",
+                    ):
+                        info = TASK_ENV.play_once()
                     collect_success = TASK_ENV.check_success()
                     failed_info_db[f"episode_{idx}"] = {
                         "seed": seed,
@@ -408,7 +459,9 @@ def run(TASK_ENV, args):
                         f"\033[91mFailed episode collection error:\033[0m "
                         + f"episode={idx}, seed={seed}, error={type(e).__name__}: {e}"
                     )
-                    record["collected"] = False
+                    # Optionally mark errored episodes as collected to prevent endless
+                    # restart loops on deterministic failures/timeouts.
+                    record["collected"] = failed_mark_collected_on_error
                     record["collection_replay_mode"] = replay_mode
                     record["collection_success"] = False
                     record["collection_error"] = f"{type(e).__name__}: {str(e)}"
@@ -417,6 +470,7 @@ def run(TASK_ENV, args):
                         TASK_ENV.close_env()
                     except Exception:
                         pass
+                    _remove_failed_cache_episode(failed_save_path, idx)
 
                 _save_json(failed_records_path, failed_records)
 
