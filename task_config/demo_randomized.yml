@@ -5,7 +5,7 @@ renderer_mode: default
 ray_tracing_samples_per_pixel: 32
 ray_tracing_path_depth: 8
 ray_tracing_denoiser: none
-episode_num: 100
+episode_num: 40
 use_seed: false
 save_freq: 15
 embodiment: [aloha-agilex]

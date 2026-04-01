@@ -159,7 +159,13 @@ def main(usr_args):
 
     st_seed = 100000 * (1 + seed)
     suc_nums = []
-    test_num = 100
+    raw_test_num = usr_args.get("test_num", 100)
+    try:
+        test_num = int(raw_test_num)
+    except (TypeError, ValueError):
+        test_num = 100
+    if test_num <= 0:
+        raise ValueError(f"test_num must be positive, got {raw_test_num}")
     topk = 1
 
     model = get_model(usr_args)
@@ -212,6 +218,7 @@ def eval_policy(task_name,
     now_seed = st_seed
     task_total_reward = 0
     clear_cache_freq = args["clear_cache_freq"]
+    eval_clear_cache = bool(args.get("eval_clear_cache", False))
 
     args["eval_mode"] = True
 
@@ -307,7 +314,10 @@ def eval_policy(task_name,
             print("\033[91mFail!\033[0m")
 
         now_id += 1
-        TASK_ENV.close_env(clear_cache=((succ_seed + 1) % clear_cache_freq == 0))
+        do_clear_cache = False
+        if eval_clear_cache and clear_cache_freq:
+            do_clear_cache = ((TASK_ENV.test_num + 1) % int(clear_cache_freq) == 0)
+        TASK_ENV.close_env(clear_cache=do_clear_cache)
 
         if TASK_ENV.render_freq:
             TASK_ENV.viewer.close()
